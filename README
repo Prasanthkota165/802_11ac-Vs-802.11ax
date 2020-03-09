@@ -1,0 +1,34 @@
+*** Welcome to the Readme file ***
+//This file tells you how to run the WIFI5 and WIFI6 in NS2 using patch files //
+========================================================================
+Assuming that you have NS2 installed in your PC/LAPTOP: 
+
+Step 1: We have modified "MAC" folder, please copy the files from this mac folder to the ns2 MAC folder(/ns-allinone-2.35/ns-2.35/mac).
+	It will ask to replace the existing files, please replace it.
+
+Step 2: If you want to simulate WIFI5, please copy the 802_11ac.patch from the patches folder to /ns-allinone-2.35/ns-2.35, this assures that 
+	WIFI5 patch has been applied. Similarly for WIFI6, please copy the 802_11ax.patch from the patches folder to 
+	/ns-allinone-2.35/ns-2.35, this assures that WIFI6 patch has been applied.
+
+Step 3: Copy the files from the tcl folder to the /ns-allinone-2.35/bin.
+
+Step 4: run the 2.tcl with the command, "ns 2.tcl" in the terminal
+
+Step 5: run the awk file to trace the throughput of WIFI5/WIFI6 with the command, "awk -f th.awk WIFI.tr" in the terminal.
+
+########################################################################
+
+So far explained is "How to run the setup". Next we will explain the scenario what we have simulated in the 2.tcl
+
+=========================================================================
+1. The scenario is we have 2 ACCESS POINTS with 802.11ac/802.11ax technology and 4 nodes(USERS).
+2. We splitted the uplink/downlink traffic from each user node towards each access point. All the users send uplink traffic to one access point(AP0) and the other access point (AP1) could serve the user nodes with downlink traffic.
+3. Atlast, we calculated the throughput for both WIFI technologies and compare them.
+
+
+---------------
+BY-
+PRASANTH KOTA
+MIRARISH PAJOOM
+
+ 

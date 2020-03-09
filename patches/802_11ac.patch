@@ -1,0 +1,1399 @@
+--- ../ns-allinone-2.35-orig/ns-2.35/mac/mac-802_11.h	2008-04-01 10:00:23.000000000 +0800
++++ ns-2.35/mac/mac-802_11.h	2009-08-17 10:53:57.546875000 +0800
+@@ -77,7 +77,6 @@
+ #define MAC_Subtype_ProbeReq	0x04
+ #define MAC_Subtype_ProbeRep	0x05
+ 
+-
+ struct frame_control {
+ 	u_char		fc_subtype		: 4;
+ 	u_char		fc_type			: 2;
+@@ -186,17 +185,52 @@
+ };
+ 
+ 
++// XXX This header does not have its header access function because it shares
++// the same header space with hdr_mac.
++/*
++struct hdr_mac802_11s {
++	struct frame_control	dh_fc;
++	u_int16_t				dh_duration;
++	u_char                  dh_ra[ETHER_ADDR_LEN];
++    u_char                  dh_ta[ETHER_ADDR_LEN];
++    u_char                  dh_3a[ETHER_ADDR_LEN];
++	u_int16_t		dh_scontrol;
++	u_int16_t		dh_QoScontrol;
++	u_int32_t		dh_HTcontrol;	
++	struct mesh_control		dh_mc;
++	u_char			dh_body[1]; // size of 1 for ANSI compatibility
++};
++*/
++
++struct mesh_control {
++	u_char		mc_ae			:2;
++	u_char		mc_psl			:1;
++	u_char		mc_rspi			:1;
++	u_char		mc_rsvd			:4;
++	
++	u_int8_t	mc_ttl;
++	u_int32_t	mc_sn;
++// 	u_char		dh_4a[ETHER_ADDR_LEN]; remove due to overloading with addr. 4 in 802.11ac header
++	u_char		dh_5a[ETHER_ADDR_LEN];
++	u_char		dh_6a[ETHER_ADDR_LEN];
++};
+ 
+ // XXX This header does not have its header access function because it shares
+ // the same header space with hdr_mac.
++
+ struct hdr_mac802_11 {
+ 	struct frame_control	dh_fc;
+ 	u_int16_t		dh_duration;
+-	u_char                  dh_ra[ETHER_ADDR_LEN];
+-        u_char                  dh_ta[ETHER_ADDR_LEN];
+-        u_char                  dh_3a[ETHER_ADDR_LEN];
++	u_char          dh_ra[ETHER_ADDR_LEN];
++    u_char          dh_ta[ETHER_ADDR_LEN];
++    u_char          dh_3a[ETHER_ADDR_LEN];
+ 	u_char			dh_4a[ETHER_ADDR_LEN];
++//	u_char			dh_5a[ETHER_ADDR_LEN];
++//	u_char			dh_6a[ETHER_ADDR_LEN];
+ 	u_int16_t		dh_scontrol;
++	u_int16_t		dh_QoScontrol;
++	u_int32_t		dh_HTcontrol;	
++	struct mesh_control		dh_mc;	
+ 	u_char			dh_body[1]; // size of 1 for ANSI compatibility
+ };
+ 
+@@ -213,6 +247,26 @@
+ 	struct ap_table *next;
+ };
+ 
++struct forwarding_table {
++	int dest;
++	int nexthop;
++	int distance;
++	struct forwarding_table *next;
++};
++
++struct proxy_table {
++    int mac;
++	int proxy;
++	int inmesh;
++	int lifetime; 
++	struct proxy_table *next;
++};
++
++struct MeshSN_table {
++	int srcMeshSTA;
++	u_int32_t	SN;
++	struct MeshSN_table *next;
++};
+ 
+ /* ======================================================================
+    Definitions
+@@ -247,7 +301,13 @@
+ 	inline u_int32_t getPLCPhdrLen() {
+ 		return((PreambleLength + PLCPHeaderLength) >> 3);
+ 	}
+-
++/*	
++	inline u_int32_t getHdrLen11s() 
++	{
++		return(getPLCPhdrLen() + offsetof(struct hdr_mac802_11s, dh_body[0])
++                       + ETHER_FCS_LEN);
++	}
++*/	
+ 	inline u_int32_t getHdrLen11() {
+ 		return(getPLCPhdrLen() + offsetof(struct hdr_mac802_11, dh_body[0])
+                        + ETHER_FCS_LEN);
+@@ -368,9 +428,9 @@
+ 	inline int	hdr_dst(char* hdr, int dst = -2);
+ 	inline int	hdr_src(char* hdr, int src = -2);
+ 	inline int	hdr_type(char* hdr, u_int16_t type = 0);
+-	
++
+ 	inline int bss_id() { return bss_id_; }
+-	
++	inline int isAP() {return ((addr()==ap_addr)?1:0);}	
+ 	// Added by Sushmita to support event tracing
+         void trace_event(char *, Packet *);
+         EventTrace *et_;
+@@ -391,8 +451,20 @@
+ 	int	find_client(int num);	
+ 	void	update_ap_table(int num, double power);	
+ 	void 	push_ap(int num, double power);	
++	void    forwarding_table(int dest, int nexthop, int distance);
++	void    push_forwarding(int dest, int nexthop, int distance);
++	void    proxy_table(int mac, int proxy, int inmesh, int isproxied );
++	void    push_proxy(int mac, int proxy, int inmesh, int isproxied);
+ 	int 	strongest_ap();
++	
++	void MeshSN_table(int asrcMeshSTA, u_int32_t aSN);	
++	void push_MeshSN(int asrcMeshSTA, u_int32_t aSN); 	
++	u_int32_t  find_MeshSN(int srcMSTA);
+ 	int	find_ap(int num, double power);
++	int find_proxy(int dstmac);
++	int find_meshnexthop(int mdst);
++	int is_proxied(int macdst);
++	
+ 	void 	deletelist();
+ 	void	passive_scan();	
+ 	void	active_scan();
+@@ -413,6 +485,9 @@
+ 	double Pr;
+ 	int ap_temp;
+ 	int ap_addr;
++	
++    int isMeshSTA;   
++
+ 	int associating_node_;
+ 	int authenticating_node_;
+ 	int ScanType_;
+@@ -546,6 +621,10 @@
+  	double		dataRate_;
+ 	struct client_table	*client_list;	
+ 	struct ap_table	*ap_list;
++	struct forwarding_table *forwarding_list;
++	struct proxy_table *proxy_list;
++	struct MeshSN_table *MeshSN_list;
++	u_int32_t currentMeshSN;
+ 	int priority_queue[4];
+ 	int head;
+ 	/*
+--- ../ns-allinone-2.35-orig/ns-2.35/mac/mac-802_11.cc	2008-04-01 10:00:23.000000000 +0800
++++ ns-2.35/mac/mac-802_11.cc	2009-08-25 14:05:26.492398600 +0800
+@@ -223,10 +223,16 @@
+ 	cache_node_count_ = 0;
+ 	client_list = NULL;
+ 	ap_list = NULL;
++	forwarding_list = NULL;
++	proxy_list = NULL;
+ 	Pr = 0;
+ 	ap_temp = -1;
+ 	head = 0;
+ 	ap_addr = -1;
++	
++	
++	isMeshSTA=0;
++	currentMeshSN=0;
+ 	associated = 0;
+ 	authenticated = 0;
+ 	OnMinChannelTime = 0;
+@@ -263,6 +269,14 @@
+ int
+ Mac802_11::command(int argc, const char*const* argv)
+ {
++	if (argc == 2) {
++		if (strcmp(argv[1], "mesh") == 0) {
++			isMeshSTA=1;
++			bss_id_ =addr();    /*for distinguish from IBSS */
++			infra_mode_=1;
++			return TCL_OK;
++		}
++	}
+ 	if (argc == 3) {
+ 		if (strcmp(argv[1], "eot-target") == 0) {
+ 			EOTtarget_ = (NsObject*) TclObject::lookup(argv[2]);
+@@ -277,7 +291,7 @@
+ 			mhBeacon_.start((Random::random() % cw_) * 
+ 					phymib_.getSlotTime());
+ 			return TCL_OK;
+-		} 
++		}
+ 		if (strcmp(argv[1], "ScanType") == 0) {
+ 			if (strcmp(argv[2], "ACTIVE") == 0) {
+ 				ScanType_ = ACTIVE;
+@@ -308,6 +322,27 @@
+                         return (TCL_OK);
+                 }
+ 	}
++
++    if(argc == 5){
++        if (strcmp(argv[1], "forward") == 0) {	
++			int adest = atoi(argv[2]);
++			int anexthop = atoi(argv[3]);
++			int adistance = atoi(argv[4]);
++			forwarding_table(adest, anexthop, adistance);
++			return TCL_OK;
++		}
++    }
++    if(argc == 6){   	
++		if(strcmp(argv[1], "proxy") == 0){
++			int amac = atoi(argv[2]);
++			int aproxy = atoi(argv[3]);
++			int ainmesh = atoi(argv[4]);
++			int alifetime = atoi(argv[5]);
++
++			proxy_table(amac, aproxy, ainmesh, alifetime);
++			return TCL_OK;
++		}
++	}
+ 	return Mac::command(argc, argv);
+ }
+ 
+@@ -393,27 +428,100 @@
+ Mac802_11::hdr_dst(char* hdr, int dst )
+ {
+ 	struct hdr_mac802_11 *dh = (struct hdr_mac802_11*) hdr;
++	u_int32_t meshdst;
+ 	
+-       if (dst > -2) {
+-               if (bss_id() == ((int)IBSS_ID)) {
++      if (dst > -2) {
++	           //IBSS
++        if (bss_id() == ((int)IBSS_ID)) {
+ 			STORE4BYTE(&dst, (dh->dh_ra));
+-		} else if ( addr() == bss_id_) {
+-			if ( find_client(dst) == 1 || (u_int32_t) dst == MAC_BROADCAST) {
+-				STORE4BYTE(&dst, (dh->dh_ra));
+-			} else {
+-				int dst_broadcast;
+-				dst_broadcast = MAC_BROADCAST;
++			printf("IBSS-----------------------: %d\n",addr());
++		} else if ( isAP()) {
++		   	if(isMeshSTA) /*i.e., *MAP*/
++			{ 
++			printf("hdr_dst-----MAP---%d\n",addr());
++			printf("hdr_dst------dest:        %d       \n",dst);	
++				if((u_int32_t) dst != MAC_BROADCAST) /*map unicast*/
++				{
++					if(is_proxied(dst) == 1 )
++					{
++					printf("hdr_dst-----proxy MAP of dst !\n");
++						STORE4BYTE(&dst, (dh->dh_ra));
++						dh->dh_fc.fc_to_ds      = 0;
++						dh->dh_fc.fc_from_ds    = 1;
++					}
++					else /* I am not dst's proxy */
++					{					
++						meshdst = find_proxy(dst);
++						int a = find_meshnexthop(meshdst);
++						printf("hdr_dst------next hop meshSTA:        %d     \n",a);
++						STORE4BYTE(&a, (dh->dh_ra));
++						STORE4BYTE(&dst, (dh->dh_mc.dh_5a));
++						STORE4BYTE(&meshdst, (dh->dh_3a));
++//						printf("Wireless DS\n");
++
++						dh->dh_fc.fc_to_ds      = 1;
++						dh->dh_fc.fc_from_ds    = 1;							
++					}
++				}
++				else /*map broadcast*/
++				{ 
++					printf("hdr_dst-----MAP broadcasting---%d\n",addr());				
++					STORE4BYTE(&dst, (dh->dh_ra));		
++ //    				STORE4BYTE(&dst, (dh->dh_3a));
++//					STORE4BYTE(&dst, (dh->dh_mc.dh_5a));
++					
+ 	
+-				STORE4BYTE(&dst_broadcast, (dh->dh_ra));
+-				STORE4BYTE(&dst, (dh->dh_3a));
++				}
++			} 
++			else /*ap but not meshSTA */
++			{
++				if ( find_client(dst) == 1 || (u_int32_t) dst == MAC_BROADCAST ) {
++					STORE4BYTE(&dst, (dh->dh_ra));
++				} else {
++					//Wireless DS
++					int dst_broadcast;					
++					dst_broadcast = MAC_BROADCAST;									
++					STORE4BYTE(&dst_broadcast, (dh->dh_ra));							
++//					STORE4BYTE(&dst, (dh->dh_3a));
++				
++					printf("Wireless DS\n");
++					dh->dh_fc.fc_to_ds      = 1;
++					dh->dh_fc.fc_from_ds    = 1;		
++				}
++			
++			}
++		}
++		else { /*not AP*/
++			if(isMeshSTA==1){
++			if((u_int32_t) dst == MAC_BROADCAST) {
++				STORE4BYTE(&dst, (dh->dh_ra));
++//    			STORE4BYTE(&dst, (dh->dh_3a));
++//				STORE4BYTE(&dst, (dh->dh_mc.dh_5a));			
++			}
++			else
++				{
++				printf("hdr_dst-----meshSTA---%d\n",addr());
++				printf("hdr_dst------dest:        %d       \n",dst);	
++				meshdst = find_proxy(dst);
++				int a = find_meshnexthop(meshdst);
++				printf("hdr_dst-------nexthop meshSTA :%d     \n",a);
++				STORE4BYTE(&a, (dh->dh_ra));
++     			STORE4BYTE(&meshdst, (dh->dh_3a));
++				STORE4BYTE(&dst, (dh->dh_mc.dh_5a));						
++				}
++			dh->dh_fc.fc_to_ds      = 1;
++			dh->dh_fc.fc_from_ds    = 1;	
++				
++			}
++			else{ /*simple STA*/
++				printf("hdr_dst-----TO AP\n");
++				STORE4BYTE(&bss_id_, (dh->dh_ra));
++                STORE4BYTE(&dst, (dh->dh_3a));
+ 				dh->dh_fc.fc_to_ds      = 1;
+-				dh->dh_fc.fc_from_ds    = 1;		
++				dh->dh_fc.fc_from_ds    = 0;	
++				printf ("hdr_dst----STA %d sends a frame via %d to dst: %d \n", addr(), bss_id_, dst);
+ 			}
+-
+-		} else {
+-
+-			STORE4BYTE(&bss_id_, (dh->dh_ra));
+-                        STORE4BYTE(&dst, (dh->dh_3a));
++			
+ 		}
+ 	}
+ 
+@@ -425,8 +533,23 @@
+ {
+ 	struct hdr_mac802_11 *dh = (struct hdr_mac802_11*) hdr;
+         if(src > -2)
+-               STORE4BYTE(&src, (dh->dh_ta));
+-        return ETHER_ADDR(dh->dh_ta);
++		{
++			STORE4BYTE(&src, (dh->dh_ta));	
++			printf("hdr src--------------\n");			
++/*			if (isMeshSTA!=0)
++			{
++				if (dh->dh_fc.fc_to_ds==1){
++					int meshsrc = find_proxy(src);
++					STORE4BYTE(&meshsrc, (dh->dh_3a));
++				}
++				else {
++					STORE4BYTE(&src, (dh->dh_3a));
++				}
++			STORE4BYTE(&src, (dh->dh_ta));	   
++			}
++*/			
++		}	
++		return ETHER_ADDR(dh->dh_ta);	
+ }
+ 
+ inline int 
+@@ -658,7 +781,7 @@
+ void
+ Mac802_11::backoffHandler()
+ {
+-	if(addr() != bss_id_ && infra_mode_ == 1) {
++	if(!isAP() && infra_mode_ == 1) {
+ 		if(check_pktPROBEREQ() == 0)
+ 			return;
+ 		if(check_pktAUTHENTICATE() == 0)
+@@ -672,7 +795,7 @@
+ 		return;
+ 	}
+ 
+-	if ( addr() == bss_id_ ) {
++	if ( isAP() ) {
+ 		if (pktPROBEREP_ && priority_queue[head] == 1) {
+ 			if (check_pktPROBEREP() == 0) 
+ 				return;
+@@ -693,6 +816,8 @@
+ 		return;
+ 	if(check_pktTx() == 0)
+ 		return;
++	if(!isAP() && isMeshSTA==1)
++		return;
+ }
+ 
+ void
+@@ -715,7 +840,7 @@
+ Mac802_11::ProbeHandler()
+ {
+ 	if (ScanType_ == ACTIVE) {
+-		if ( (bss_id_ == (int)IBSS_ID || handoff == 1) && OnMinChannelTime == 0 && Recv_Busy_ == 0 && OnMaxChannelTime == 0) {
++		if ( (bss_id_ == (int)IBSS_ID || handoff == 1) && OnMinChannelTime == 0 && Recv_Busy_ == 0 && OnMaxChannelTime == 0 ) {
+ 			if (strongest_ap() < 0) {   // Probe delay over - Active Scan starts here, when the ap_table has not been built yet
+ 				sendPROBEREQ(MAC_BROADCAST); 
+ 				return;
+@@ -819,7 +944,7 @@
+ 			assert(pktAUTHENTICATE_);
+ 			Packet::free(pktAUTHENTICATE_);
+ 			pktAUTHENTICATE_ = 0;
+-			if(addr() == bss_id_) {
++			if(isAP()) {
+ 				if (end() > (head + 1)) {
+ 					shift_priority_queue();
+ 					assert(mhBackoff_.busy() == 0);
+@@ -1020,7 +1145,7 @@
+ 
+ 	mh = HDR_MAC802_11(pktTx_);
+ 	
+-	if (addr() != bss_id_ && bss_id_ != (int)IBSS_ID) {
++	if (!isAP() && bss_id_ != (int)IBSS_ID && isMeshSTA==0) {
+ 		if (handoff == 0)
+ 			STORE4BYTE(&bss_id_, (mh->dh_ra));
+ 	}
+@@ -1212,16 +1337,12 @@
+ 	u_int32_t dst = ETHER_ADDR(dh->dh_ra);
+ 	assert(pktTx_ == 0);
+ 
+-	/*
+-	 * Update the MAC header
+-	 */
+-	ch->size() += phymib_.getHdrLen11();
+ 
+ 	dh->dh_fc.fc_protocol_version = MAC_ProtocolVersion;
+ 	dh->dh_fc.fc_type       = MAC_Type_Data;
+ 	dh->dh_fc.fc_subtype    = MAC_Subtype_Data;
+ 	if ( bss_id_ != (int)IBSS_ID ) {
+-		if ( index_ == ap_addr ) {
++		if ( isAP() ) {
+ 			if (dh->dh_fc.fc_to_ds == 0) {
+ 				if (find_client(dst) == 1 || dst == MAC_BROADCAST) {
+  					dh->dh_fc.fc_to_ds      = 0;
+@@ -1229,14 +1350,40 @@
+ 					}
+ 			} 
+ 		} else {
+-		dh->dh_fc.fc_to_ds	= 1;
+-		dh->dh_fc.fc_from_ds	= 0;
++			if (isMeshSTA==1){
++				dh->dh_fc.fc_to_ds	= 1;
++				dh->dh_fc.fc_from_ds	= 1;
++				if (dst==MAC_BROADCAST)
++					dh->dh_mc.mc_ae=1;
++				else
++					dh->dh_mc.mc_ae=2;
++			}else{
++				dh->dh_fc.fc_to_ds	= 1;
++				dh->dh_fc.fc_from_ds	= 0;
++			}
+ 		}
+ 	} else {
+ 		dh->dh_fc.fc_to_ds	= 0;
+ 		dh->dh_fc.fc_from_ds	= 0;
+ 	}	
+ 
++		/*
++	 * Update the MAC header
++	 */
++	ch->size() += phymib_.getHdrLen11();
++
++	if (dh->dh_fc.fc_to_ds*dh->dh_fc.fc_from_ds!=1) 
++	{
++		ch->size() -= 24;  /* excluding mesh header and addr.4 */
++	}
++	else /* To DS==1 && From DS==1 */
++	{
++		if (dh->dh_mc.mc_ae==0)
++			ch->size() -= 18;   /* wireless distribution system --> exclude mesh header */
++		else if (dh->dh_mc.mc_ae==1)
++			ch->size() -= 12;  /* excluding addr. 5 and 6 */	
++	}
++	
+ 	dh->dh_fc.fc_more_frag  = 0;
+ 	dh->dh_fc.fc_retry      = 0;
+ 	dh->dh_fc.fc_pwr_mgt    = 0;
+@@ -1283,7 +1430,9 @@
+ 		discard(pktRTS_, DROP_MAC_RETRY_COUNT_EXCEEDED); pktRTS_ = 0;
+ 		/* tell the callback the send operation failed 
+ 		   before discarding the packet */
+-		hdr_cmn *ch = HDR_CMN(pktTx_);
++	
++		   hdr_cmn *ch = HDR_CMN(pktTx_);
++		
+ 		if (ch->xmit_failure_) {
+                         /*
+                          *  Need to remove the MAC header so that 
+@@ -1291,10 +1440,24 @@
+                          *  bigger.
+                          */
+ 			ch->size() -= phymib_.getHdrLen11();
+-                        ch->xmit_reason_ = XMIT_REASON_RTS;
+-                        ch->xmit_failure_(pktTx_->copy(),
++
++			struct hdr_mac802_11 *dh = HDR_MAC802_11(pktTx_);
++			if (dh->dh_fc.fc_to_ds*dh->dh_fc.fc_from_ds!=1) 
++			{
++				ch->size() += 24;  /* considering mesh header and addr.4 */
++			}
++			else /* To DS==1 && From DS==1 */
++			{
++				if (dh->dh_mc.mc_ae==0)
++					ch->size() += 18;   /* considering mesh header */
++				else if (dh->dh_mc.mc_ae==1)
++					ch->size() += 12;  /* considering addr. 5 and 6 */	
++			}
++			
++            ch->xmit_reason_ = XMIT_REASON_RTS;
++            ch->xmit_failure_(pktTx_->copy(),
+                                           ch->xmit_failure_data_);
+-                }
++            }
+ 		discard(pktTx_, DROP_MAC_RETRY_COUNT_EXCEEDED); 
+ 		pktTx_ = 0;
+ 		ssrc_ = 0;
+@@ -1372,11 +1535,25 @@
+ 		   before discarding the packet */
+ 		hdr_cmn *ch = HDR_CMN(pktTx_);
+ 		if (ch->xmit_failure_) {
+-                        ch->size() -= phymib_.getHdrLen11();
++            ch->size() -= phymib_.getHdrLen11();
++
++			struct hdr_mac802_11 *dh = HDR_MAC802_11(pktTx_);
++			if (dh->dh_fc.fc_to_ds*dh->dh_fc.fc_from_ds!=1) 
++			{
++				ch->size() += 24;  /* considering mesh header and addr.4 */
++			}
++			else /* To DS==1 && From DS==1 */
++			{
++				if (dh->dh_mc.mc_ae==0)
++					ch->size() += 18;   /* considering mesh header */
++				else if (dh->dh_mc.mc_ae==1)
++					ch->size() += 12;  /* considering addr. 5 and 6 */	
++			}						
++
+ 			ch->xmit_reason_ = XMIT_REASON_ACK;
+-                        ch->xmit_failure_(pktTx_->copy(),
+-                                          ch->xmit_failure_data_);
+-                }
++            ch->xmit_failure_(pktTx_->copy(),
++            ch->xmit_failure_data_);
++        }
+ 
+ 		discard(pktTx_, DROP_MAC_RETRY_COUNT_EXCEEDED); 
+ 		pktTx_ = 0;
+@@ -1716,19 +1893,62 @@
+ 		goto done;
+ 	}
+ 	
+-	
+-	if ( dst == MAC_BROADCAST && mh->dh_fc.fc_to_ds == 1 && mh->dh_fc.fc_from_ds == 1) {
+-		if (addr() != bss_id_) {
+- 			discard(pktRx_, "---");
+- 			goto done;
++	if ( dst == MAC_BROADCAST && mh->dh_fc.fc_to_ds == 0 && mh->dh_fc.fc_from_ds == 1 ) {
++		int tta = ETHER_ADDR(mh->dh_ta);
++		if (isAP()) {
++			discard(pktRx_, "---");
++			goto done;
+ 		}
+-		if (addr() == bss_id_ && find_client(ap_dst) == 0) {
++		if (!isAP() && bss_id_ != tta  ) {			
+ 			discard(pktRx_, "---");
+- 			goto done;
++			goto done;			
+ 		}
++
+  	}
+ 	
+-	if ( addr() != bss_id_ && subtype == MAC_Subtype_ProbeReq) {
++	if ( dst == MAC_BROADCAST && mh->dh_fc.fc_to_ds == 1 && mh->dh_fc.fc_from_ds == 1) {
++		
++		if (isMeshSTA==0)
++		{
++			if(!isAP()){	/*simple STA*/
++				discard(pktRx_, "---");
++				goto done;
++			}
++			else {/*pure AP*/ /*note AP's wireless DS is single hop only!!*/
++					if (find_client(ap_dst) == 0)
++						if (ap_dst !=MAC_BROADCAST) {
++							discard(pktRx_, "---");
++							goto done;
++						}
++			}
++		}
++		else { /*MAP or mesh STA*/ 
++		
++			
++				int t_ta = ETHER_ADDR(mh->dh_ta);
++				int MeshSA = ETHER_ADDR(mh->dh_3a);
++				int nexthop_a = find_meshnexthop(MeshSA);
++				
++//				if(nexthop_a != t_ta){ /*using the RPF (Reverse Path Forwarding) for loop elimination */
++//					discard(pktRx_, "RPF");
++//					goto done;
++//				}
++			
++				u_int32_t SNcheck=find_MeshSN(MeshSA);
++				if (SNcheck < mh->dh_mc.mc_sn){
++				    printf("successful checking srcMeshSA:%d SN:%d\n",MeshSA, mh->dh_mc.mc_sn);
++					MeshSN_table(MeshSA, mh->dh_mc.mc_sn);
++				}
++				else{
++					printf("Fail checking srcMeshSA:%d recorded SN:%d received SN:%d\n",MeshSA, SNcheck, mh->dh_mc.mc_sn);
++					discard(pktRx_, "Dup");
++					goto done;
++				}
++				
++		}
++	}		
++	
++	if ( !isAP() && subtype == MAC_Subtype_ProbeReq) {
+ 		discard(pktRx_, "---");
+  			goto done;
+ 	}
+@@ -1894,17 +2114,33 @@
+ Mac802_11::recvDATA(Packet *p)
+ {
+ 	struct hdr_mac802_11 *dh = HDR_MAC802_11(p);
+-	u_int32_t dst, src, size;
++	u_int32_t dst, src, meshsrc, meshdst, size;
+ 	struct hdr_cmn *ch = HDR_CMN(p);
+ 
+ 	dst = ETHER_ADDR(dh->dh_ra);
+ 	src = ETHER_ADDR(dh->dh_ta);
+ 	size = ch->size();
++ 
++ printf("node %d receive data: from %d to %d", addr(),src,dst);
++
+ 	/*
+ 	 * Adjust the MAC packet size - ie; strip
+ 	 * off the mac header
+ 	 */
+ 	ch->size() -= phymib_.getHdrLen11();
++
++	if (dh->dh_fc.fc_to_ds*dh->dh_fc.fc_from_ds!=1) 
++	{
++		ch->size() += 24;  /* considering mesh header and addr.4 */
++	}
++	else /* To DS==1 && From DS==1 */
++	{
++		if (dh->dh_mc.mc_ae==0)
++			ch->size() += 18;   /* considering mesh header */
++		else if (dh->dh_mc.mc_ae==1)
++			ch->size() += 12;  /* considering addr. 5 and 6 */	
++	}
++	
+ 	ch->num_forwards() += 1;
+ 
+ 	/*
+@@ -1989,48 +2225,351 @@
+ 	 * LL to be added back to my queue - accomplish this
+ 	 * by reversing the direction!*/
+ 	
+-	
+ 		
+-	if ((bss_id() == addr()) && ((u_int32_t)ETHER_ADDR(dh->dh_ra)!= MAC_BROADCAST) && ((u_int32_t)ETHER_ADDR(dh->dh_3a) != ((u_int32_t)addr())) && dh->dh_fc.fc_from_ds == 0) {
+-		struct hdr_cmn *ch = HDR_CMN(p);
+-	
++	if (isAP() && ((u_int32_t)ETHER_ADDR(dh->dh_ra)!= MAC_BROADCAST) && ((u_int32_t)ETHER_ADDR(dh->dh_3a) != ((u_int32_t)addr())) && dh->dh_fc.fc_from_ds == 0) {
++		// AP receives a unicast frame destined for other STA
++       if(isMeshSTA == 1){ /*MAP*/	
++	   
++//			ch->next_hop() = dst;
++			
++			Packet* toSTA;
++			Packet* toMeshSTA;
++			
++			
++			 /*unicast*/		
++			u_int32_t dst = ETHER_ADDR(dh->dh_3a);
++			u_int32_t src = ETHER_ADDR(dh->dh_ta);	
++			
++			if (dst == MAC_BROADCAST) {
++				uptarget_->recv(p->copy(), (Handler*) 0);
+ 				
+-		u_int32_t dst = ETHER_ADDR(dh->dh_3a);
+-		u_int32_t src = ETHER_ADDR(dh->dh_ta);
+-		/* if it is a broadcast pkt then send a copy up
+-		 * my stack also
+-		 */
++				toSTA = p->copy();
++				
++				struct hdr_cmn *toSTAch = HDR_CMN(toSTA);
++				struct hdr_mac802_11 *toSTAdh = HDR_MAC802_11(toSTA);
++				STORE4BYTE(&src, (toSTAdh->dh_3a));		
++				STORE4BYTE(&dst, (toSTAdh->dh_ra));
++				toSTAdh->dh_fc.fc_to_ds      = 0;
++				toSTAdh->dh_fc.fc_from_ds    = 1;
++				toSTAch->next_hop()=dst;	
++				toSTAch->addr_type() = NS_AF_ILINK;
++				toSTAch->direction() = hdr_cmn::DOWN;
++				printf("MAP %d forwarding a broadcast from STA %d to all proxied STAs ----> %d\n",addr(), src, dst);					
++				uptarget_->recv(toSTA, (Handler*) 0);
++				
++				toMeshSTA = p->copy();
++				struct hdr_cmn *toMeshSTAch = HDR_CMN(toSTA);
++				struct hdr_mac802_11 *toMeshSTAdh = HDR_MAC802_11(toSTA);
++				STORE4BYTE(&dst, (toMeshSTAdh->dh_ra));	
++				int myaddr=addr();
++				STORE4BYTE(&myaddr, (toMeshSTAdh->dh_3a));
++				STORE4BYTE(&src, (toMeshSTAdh->dh_4a));
++				currentMeshSN++;
++				printf("currentMeshSN:%d\n",currentMeshSN);
++				toMeshSTAdh->dh_mc.mc_sn=currentMeshSN;
++				toMeshSTAdh->dh_fc.fc_to_ds      = 1;
++				toMeshSTAdh->dh_fc.fc_from_ds    = 1;
++				toMeshSTAdh->dh_mc.mc_ae    = 1;			
++				toMeshSTAch->next_hop()=dst;	
++				toMeshSTAch->addr_type() = NS_AF_ILINK;
++				toMeshSTAch->direction() = hdr_cmn::DOWN;
++				printf("MAP %d forwarding a broadcast from STA %d ----> %d\n",addr(), src, dst);				
++				uptarget_->recv(toMeshSTA, (Handler*) 0);			
++				printf("out MAP broadcasting\n");							
++			}
++			else{			
++					printf("MAP %d receices a unicast from STA %d ----> %d\n",addr(), src, dst);
++					u_int32_t meshdst = find_proxy(dst);
++					printf("-------mesh dst   is  %d\n",meshdst);
++					u_int32_t meshsrc = addr();
++					printf("-------mesh src   is  %d\n",meshsrc);
++
++					int a = find_meshnexthop(meshdst);
++					printf("-------nexthop    is   %d\n\n",a);	
++			
++				if ( is_proxied(dst) == 1 ) {  
++					STORE4BYTE(&dst, (dh->dh_ra));
++					STORE4BYTE(&src, (dh->dh_3a));			
++					dh->dh_fc.fc_to_ds      = 0;
++					dh->dh_fc.fc_from_ds    = 1;	
++					ch->next_hop()=dst;					
++				} else {	
++					int a = find_meshnexthop(meshdst);
++					STORE4BYTE(&a, (dh->dh_ra));				
++					STORE4BYTE(&meshdst, (dh->dh_3a));
++					STORE4BYTE(&meshsrc, (dh->dh_4a));
++					STORE4BYTE(&dst, (dh->dh_mc.dh_5a));
++					STORE4BYTE(&src, (dh->dh_mc.dh_6a));
++//					currentMeshSN++;
++					printf("currentMeshSN:%d\n",currentMeshSN);
++					dh->dh_mc.mc_sn=currentMeshSN;					
++					dh->dh_fc.fc_to_ds      = 1;
++					dh->dh_fc.fc_from_ds    = 1;
++					ch->next_hop()=dst;						
++				}
++				ch->addr_type() = NS_AF_ILINK;
++				ch->direction() = hdr_cmn::DOWN;
++				uptarget_->recv(p->copy(), (Handler*) 0);
++				
++			}
++		}else{ /*pure AP*/
+ 		
+-		if (dst == MAC_BROADCAST) {
+-			uptarget_->recv(p->copy(), (Handler*) 0);
++			u_int32_t dst = ETHER_ADDR(dh->dh_3a);
++		    u_int32_t src = ETHER_ADDR(dh->dh_ta);	
++			Packet* toSTA;
++			Packet* toAP;
++//			printf("dst  is  %d\n",dst);
++//			printf("src  is  %d\n",src);
++			/* if it is a broadcast pkt then send a copy up
++			* my stack also
++			*/		
++		    printf ("AP %d receives a frame from src: %d to dst: %d\n",addr(),src,dst);
++			if (dst == MAC_BROADCAST) {
++				uptarget_->recv(p->copy(), (Handler*) 0);
++			}
++       			
++			if (find_client(dst) == 1) {
++				ch->next_hop() = dst;
++//				STORE4BYTE(&dst, (dh->dh_ra));
++				STORE4BYTE(&src, (dh->dh_3a));
++				dh->dh_fc.fc_to_ds      = 0;
++				dh->dh_fc.fc_from_ds    = 1;
++				ch->addr_type() = NS_AF_ILINK;
++				ch->direction() = hdr_cmn::DOWN;
++				uptarget_->recv(p, (Handler*) 0);
++			} else {
++				if (dst == MAC_BROADCAST)
++				{
++				toSTA = p->copy();
++				struct hdr_cmn *toSTAch = HDR_CMN(toSTA);
++				struct hdr_mac802_11 *toSTAdh = HDR_MAC802_11(toSTA);
++				toSTAch->next_hop() = dst;
++				STORE4BYTE(&src, (toSTAdh->dh_3a));
++				toSTAdh->dh_fc.fc_to_ds      = 0;
++				toSTAdh->dh_fc.fc_from_ds    = 1;
++				toSTAch->addr_type() = NS_AF_ILINK;
++				toSTAch->direction() = hdr_cmn::DOWN;
++				uptarget_->recv(toSTA, (Handler*) 0);
++				}
++				toAP=p->copy();
++				struct hdr_cmn *toAPch = HDR_CMN(toAP);
++				struct hdr_mac802_11 *toAPdh = HDR_MAC802_11(toAP);	
++				toAPch->next_hop() = dst;				
++				STORE4BYTE(&src, (toAPdh->dh_4a));
++				STORE4BYTE(&dst, (toAPdh->dh_3a));
++				toAPdh->dh_fc.fc_to_ds      = 1;
++				toAPdh->dh_fc.fc_from_ds    = 1;				
++				int broadcastDS=MAC_BROADCAST;
++				STORE4BYTE(&broadcastDS, (toAPdh->dh_ra));
++				printf("pure AP WDS: src:%d dst:%d\n", src, dst);
++				toAPch->addr_type() = NS_AF_ILINK;
++				toAPch->direction() = hdr_cmn::DOWN;
++				uptarget_->recv(toAP, (Handler*) 0);		
++			}			
++		}	
++	
++	 return;
++	}
++	
++ 	if (dh->dh_fc.fc_to_ds == 1 && dh->dh_fc.fc_from_ds == 1) {
++	
++		u_int32_t dst = ETHER_ADDR(dh->dh_ra);
++		printf ("from WDS AP %d receives a frame from src: %d to dst: %d\n",addr(),src,dst);
++		Packet* toSTA;
++		Packet* toMeshSTA;
++		if(isAP()&&isMeshSTA == 1){ /*MAP*/
++			
++			if (dst == MAC_BROADCAST) {
++			    printf("in MAP broadcasting\n");
++				
++				u_int32_t meshdst = ETHER_ADDR(dh->dh_ra);
++				u_int32_t meshsrc = ETHER_ADDR(dh->dh_3a);
++				u_int32_t dst = ETHER_ADDR(dh->dh_ra);
++				u_int32_t src = ETHER_ADDR(dh->dh_4a);
++//				printf("1  1    dst   is  %d\n",dst);
++//				printf("1  1    src  is  %d\n",src);
++				printf("MAP %d receices a frame from meshSTA %d ----> %d\n",addr(), ETHER_ADDR(dh->dh_ta), dst);	
++				printf("mesh src --[%d]\n",meshsrc);
++				printf("mesh dst -- [%d]\n\n",meshdst);				
++				
++				uptarget_->recv(p->copy(), (Handler*) 0);
++			
++				toSTA = p->copy();
++				
++				struct hdr_cmn *cch = HDR_CMN(toSTA);
++				struct hdr_mac802_11 *ddh = HDR_MAC802_11(toSTA);
++				STORE4BYTE(&src, (ddh->dh_3a));
++				STORE4BYTE(&dst, (ddh->dh_ra));
++				ddh->dh_fc.fc_to_ds      = 0;
++				ddh->dh_fc.fc_from_ds    = 1;
++				cch->next_hop()=dst;	
++				cch->addr_type() = NS_AF_ILINK;
++				cch->direction() = hdr_cmn::DOWN;
++				uptarget_->recv(toSTA, (Handler*) 0);
++				
++				toMeshSTA = p->copy();
++				cch = HDR_CMN(toMeshSTA);
++				ddh = HDR_MAC802_11(toMeshSTA);				
++				STORE4BYTE(&dst, (ddh->dh_ra));				
++				STORE4BYTE(&meshsrc, (ddh->dh_3a));
++				STORE4BYTE(&src, (ddh->dh_4a));
++
++				ddh->dh_fc.fc_to_ds      = 1;
++				ddh->dh_fc.fc_from_ds    = 1;
++				cch->next_hop()=dst;	
++				cch->addr_type() = NS_AF_ILINK;
++				cch->direction() = hdr_cmn::DOWN;
++				uptarget_->recv(toMeshSTA, (Handler*) 0);
++				printf("out MAP broadcasting\n");
++				//uptarget_->recv(p, (Handler*) 0);
++			}else{
++				u_int32_t meshdst = ETHER_ADDR(dh->dh_3a);
++				u_int32_t meshsrc = ETHER_ADDR(dh->dh_4a);
++				u_int32_t dst = ETHER_ADDR(dh->dh_mc.dh_5a);
++				u_int32_t src = ETHER_ADDR(dh->dh_mc.dh_6a);
++//				printf("1  1    dst   is  %d\n",dst);
++//				printf("1  1    src  is  %d\n",src);
++				printf("MAP %d receices a frame from meshSTA %d ----> %d\n",addr(), ETHER_ADDR(dh->dh_ta), dst);	
++				printf("mesh src --[%d]\n",meshsrc);
++				printf("mesh dst -- [%d]\n\n",meshdst);
++			
++				if (addr()==meshdst){ 
++					if( is_proxied(dst) == 1 ) {			
++						STORE4BYTE(&src, (dh->dh_3a));
++						STORE4BYTE(&dst, (dh->dh_ra));
++						dh->dh_fc.fc_to_ds      = 0;
++						dh->dh_fc.fc_from_ds    = 1;
++						ch->next_hop()=dst;
++					} else {
++							discard(p, "PXY");
++							return;			
++					}				
++				} else {
++					int a = find_meshnexthop(meshdst);
++					STORE4BYTE(&meshdst, (dh->dh_3a));
++					STORE4BYTE(&meshsrc, (dh->dh_4a));
++					STORE4BYTE(&dst, (dh->dh_mc.dh_5a));
++					STORE4BYTE(&src, (dh->dh_mc.dh_6a));
++					STORE4BYTE(&a, (dh->dh_ra));
++					dh->dh_fc.fc_to_ds      = 1;
++					dh->dh_fc.fc_from_ds    = 1;
++					ch->next_hop()=dst;						
++				}
++				ch->addr_type() = NS_AF_ILINK;
++				ch->direction() = hdr_cmn::DOWN;
++				uptarget_->recv(p, (Handler*) 0);
++			}
++			
++			if (find_client(src)) { 
++				update_client_table(src,0,0);   // If the source is from another BSS and it is found in this AP's table, delete the node from the table
++			}
++			
++//
++//			ch->addr_type() = NS_AF_ILINK;
++//			ch->direction() = hdr_cmn::DOWN;
++			
++		}else if((isMeshSTA==1) && !isAP()){  /*meshSTA*/
++			
++			Packet* toMeshSTA;
++					
++			if (dst == MAC_BROADCAST) {
++			
++				meshdst = ETHER_ADDR(dh->dh_ra);
++//				printf(" mesh dst  %d\n",meshdst);
++				meshsrc = ETHER_ADDR(dh->dh_3a);
++//				printf("mesh src %d\n",meshsrc);
++				dst = ETHER_ADDR(dh->dh_ra);
++				src = ETHER_ADDR(dh->dh_4a);
++				
++				uptarget_->recv(p->copy(), (Handler*) 0);
++				
++				toMeshSTA = p->copy();
++				struct hdr_cmn *cch = HDR_CMN(toMeshSTA);
++				struct hdr_mac802_11 *ddh = HDR_MAC802_11(toMeshSTA);
++				
++			printf("meshSTA %d --isAP? %d -- receices a frame from meshSTA %d ----> %d\n",addr(),isAP(), ETHER_ADDR(dh->dh_ta), dst);	
++			printf("mesh src %d\n",meshsrc);
++			printf("mesh dst  %d\n\n",meshdst);
++			printf("1  1    dst   is  %d\n",dst);
++			printf("1  1    src  is  %d\n",src);		
++		
++				STORE4BYTE(&dst, (ddh->dh_ra));
++				STORE4BYTE(&meshsrc, (ddh->dh_3a));
++				STORE4BYTE(&src, (ddh->dh_4a));
++
++				ddh->dh_fc.fc_to_ds      = 1;
++				ddh->dh_fc.fc_from_ds    = 1;
++				cch->next_hop()=dst;	
++				cch->addr_type() = NS_AF_ILINK;
++				cch->direction() = hdr_cmn::DOWN;
++				uptarget_->recv(toMeshSTA, (Handler*) 0);		
++
++				printf("out MeshSTA broadcasting\n");		
++			}else{
++				meshdst = ETHER_ADDR(dh->dh_3a);
++//				printf(" mesh dst  %d\n",meshdst);
++				meshsrc = ETHER_ADDR(dh->dh_4a);
++//				printf("mesh src %d\n",meshsrc);
++				dst = ETHER_ADDR(dh->dh_mc.dh_5a);
++				src = ETHER_ADDR(dh->dh_mc.dh_6a);
++			
++				toMeshSTA=p;		
++				int a = find_meshnexthop(meshdst);
++			printf("meshSTA %d --isAP? %d -- receices a frame from meshSTA %d ----> %d\n",addr(),isAP(), ETHER_ADDR(dh->dh_ta), dst);	
++			printf("mesh src %d\n",meshsrc);
++			printf(" mesh dst  %d\n\n",meshdst);
++			printf("1  1    dst   is  %d\n",dst);
++			printf("1  1    src  is  %d\n",src);		
++				STORE4BYTE(&a, (dh->dh_ra));				
++				STORE4BYTE(&meshdst, (dh->dh_3a));
++				STORE4BYTE(&meshsrc, (dh->dh_4a));
++				STORE4BYTE(&dst, (dh->dh_mc.dh_5a));
++				STORE4BYTE(&src, (dh->dh_mc.dh_6a));	
++				dh->dh_fc.fc_to_ds      = 1;
++				dh->dh_fc.fc_from_ds    = 1;
++				ch->next_hop()=dst;	
++				ch->addr_type() = NS_AF_ILINK;
++				ch->direction() = hdr_cmn::DOWN;
++				uptarget_->recv(toMeshSTA, (Handler*) 0);
++			}
++			
++	    }else if (isAP()&&isMeshSTA==0){	/* pure AP */
++			dst = ETHER_ADDR(dh->dh_3a);
++			src = ETHER_ADDR(dh->dh_4a);
++			printf ("pure AP %d receives a frame from src: %d to dst: %d\n",addr(),src,dst);			
++			printf("1  1    dst   is  %d\n",dst);
++			printf("1  1    src  is  %d\n",src);
++			if (find_client(src)) { 
++				update_client_table(src,0,0);   // If the source is from another BSS and it is found in this AP's table, delete the node from the table
++			}	
++			if (find_client(dst)||dst==MAC_BROADCAST) {
++				ch->next_hop() = dst;
++				STORE4BYTE(&src, (dh->dh_3a));
++				dh->dh_fc.fc_to_ds      = 0;
++				dh->dh_fc.fc_from_ds    = 1;
++				ch->addr_type() = NS_AF_ILINK;
++				ch->direction() = hdr_cmn::DOWN;
++				uptarget_->recv(p, (Handler*) 0);
++			}
+ 		}
+-
+-		ch->next_hop() = dst;
+-
+-		if (find_client(dst) == 1 || dst == MAC_BROADCAST) {
+-			STORE4BYTE(&src, (dh->dh_3a));
+-		} else {
+-			STORE4BYTE(&src, (dh->dh_4a));			
++	return;	
++ 	}
++	if (dh->dh_fc.fc_to_ds == 0 && dh->dh_fc.fc_from_ds == 1) {
++		u_int32_t dst = ETHER_ADDR(dh->dh_ra);
++		u_int32_t src = ETHER_ADDR(dh->dh_3a);
++		u_int32_t myap = ETHER_ADDR(dh->dh_ta);
++		printf("STA %d []bss_id_:%d] receices a frame from AP %d ----> %d\n",addr(), bss_id_, ETHER_ADDR(dh->dh_ta), dst);
++
++		if (!isAP() && myap==bss_id_) {
++			if (addr()==dst||dst==MAC_BROADCAST){
++				printf("STA %d receices a frame from AP %d ----> %d\n",addr(), ETHER_ADDR(dh->dh_ta), dst);	
++				
++				uptarget_->recv(p->copy(), (Handler*) 0);
++			
++			}
+ 		}
+-
+-		ch->addr_type() = NS_AF_ILINK;
+-		ch->direction() = hdr_cmn::DOWN;
+-		
+ 	}
+ 	
+- 	if ((bss_id() == addr()) && dh->dh_fc.fc_to_ds == 1 && dh->dh_fc.fc_from_ds == 1) {
+- 		u_int32_t dst = ETHER_ADDR(dh->dh_3a);
+- 		u_int32_t src = ETHER_ADDR(dh->dh_4a);
+-		if (find_client(src)) { 
+-			update_client_table(src,0,0);   // If the source is from another BSS and it is found in this AP's table, delete the node from the table
+-		}	
+- 		ch->next_hop() = dst;
+- 		STORE4BYTE(&src, (dh->dh_3a));
+- 		ch->addr_type() = NS_AF_ILINK;
+- 		ch->direction() = hdr_cmn::DOWN;
+- 	}
+-
+-	uptarget_->recv(p, (Handler*) 0);
+ 	
+ }
+ 
+@@ -2040,7 +2579,7 @@
+ {	
+ 	if (tx_state_ == MAC_MGMT) {
+ 		mhSend_.stop();
+-		if (addr() == bss_id_) {
++		if (isAP()) {
+ 			if (pktASSOCREP_ && priority_queue[head] == 4) {
+ 				Packet::free(pktASSOCREP_);
+ 				pktASSOCREP_ = 0;
+@@ -2089,7 +2628,7 @@
+ 	assert(mhBackoff_.busy() == 0);
+ 	mhBackoff_.start(cw_, is_idle());
+ done:
+-	if (addr() == bss_id_) {
++	if (isAP()) {
+ 		if (end() > (head + 1)) {
+ 			shift_priority_queue();
+ 			assert(mhBackoff_.busy() == 0);
+@@ -2313,7 +2852,7 @@
+ 	infra_mode_ = 1;
+ 	//timestamp = bf->bf_timestamp;
+ 	Pr = p->txinfo_.RxPr;
+-	if ( addr() != ap_addr && ScanType_ == PASSIVE) {
++	if ( !isAP() && isMeshSTA==0 && ScanType_ == PASSIVE) {
+ 		if (authenticated == 0 && associated == 0) {
+ 			if (find_ap(src,Pr) != 1) {
+ 				update_ap_table(src,Pr);
+@@ -2327,7 +2866,7 @@
+ void
+ Mac802_11::passive_scan()
+ {
+-	if ( addr() != ap_addr && ScanType_ == PASSIVE) {
++	if ( !isAP() && isMeshSTA==0 && ScanType_ == PASSIVE) {
+ 		if (authenticated == 0 && associated == 0) {
+ 			ap_temp = strongest_ap();
+ 			if (!pktAUTHENTICATE_)
+@@ -2340,7 +2879,7 @@
+ Mac802_11::active_scan()
+ {
+ 	
+-	if ( addr() != ap_addr && ScanType_ == ACTIVE) {
++	if ( !isAP() && isMeshSTA==0 && ScanType_ == ACTIVE) {
+ 		if (authenticated == 0 && associated == 0) {
+ 			ap_temp = strongest_ap();
+ 			sendAUTHENTICATE(ap_temp);						
+@@ -2668,13 +3207,13 @@
+ 	
+ 	STORE4BYTE(&dst, (authf->authf_ra));
+ 	STORE4BYTE(&index_, (authf->authf_ta));
+-	if (addr() != bss_id_)
++	if (!isAP())
+ 		STORE4BYTE(&dst, (authf->authf_3a));
+ 	else 
+ 		STORE4BYTE(&index_, (authf->authf_3a));
+ 	authf->authf_algono = 0; //Open system authentication
+ 
+-	if (addr() != bss_id_) {
++	if (!isAP()) {
+ 		authf->authf_seqno = 1;  // 
+ 	} else {
+ 		authf->authf_seqno = 2;  //
+@@ -2682,7 +3221,7 @@
+ 	}
+ 	
+ 	ch->txtime() = txtime(ch->size(), basicRate_);
+-	if (addr() == bss_id_) {
++	if (isAP()) {
+  		authf->authf_duration = usec(txtime(phymib_.getACKlen(), basicRate_)
+ 				       + phymib_.getSIFS());
+ 	} else { 
+@@ -2746,7 +3285,7 @@
+ 			return 0;
+ 		}
+ 		setTxState(MAC_MGMT);
+-		if (addr() != bss_id_) {
++		if (!isAP()) {
+ 			timeout = txtime(phymib_.getAUTHENTICATElen(), basicRate_)
+ 				+ DSSS_MaxPropagationDelay                      // XXX
+ 				+ macmib_.getMaxChannelTime()
+@@ -2775,7 +3314,7 @@
+ {
+ 	struct auth_frame *authf = (struct auth_frame*)p->access(hdr_mac::offset_);
+ 	
+-	if (addr() != bss_id_) {
++	if (!isAP()) {
+ 			assert(pktAUTHENTICATE_);
+ 			Packet::free(pktAUTHENTICATE_);
+ 			pktAUTHENTICATE_ = 0;
+@@ -2791,7 +3330,7 @@
+ 		
+  	src = ETHER_ADDR(authf->authf_ta);
+ 	
+-	if (addr() == ap_addr) {
++	if (isAP()) {
+ 		if (authf->authf_seqno == 1) {
+ 			if (!pktAUTHENTICATE_) {// AP is not currently involved in Authentication with any other STA 
+ 				sendAUTHENTICATE(src);
+@@ -3063,7 +3602,7 @@
+ 	bss_id = ETHER_ADDR(prrqf->prrqf_3a);
+  	src = ETHER_ADDR(prrqf->prrqf_ta);
+ 	
+-	if (!pktPROBEREP_) {
++	if (!pktPROBEREP_ && isAP()) {
+ 		sendPROBEREP(src);
+ 	} else {
+ 		discard(p, DROP_MAC_BUSY);
+@@ -3086,7 +3625,7 @@
+ 	Pr = p->txinfo_.RxPr;
+  	src = ETHER_ADDR(prrpf->prrpf_ta);
+ 	bss_id = ETHER_ADDR(prrpf->prrpf_ta);
+-	
++
+ 	update_ap_table(src,Pr);
+ 		
+ 	sendACK(src);
+@@ -3101,7 +3640,7 @@
+ }
+ 
+ void Mac802_11::checkAssocAuthStatus() {
+-	if ( addr() != bss_id_ ) {
++	if ( !isAP() && isMeshSTA==0) {
+ 		if (authenticated == 0 && associated == 0) {
+ 
+ 			sendAUTHENTICATE(strongest_ap());
+@@ -3126,11 +3665,11 @@
+ 	}
+ 	struct ap_table *temp;
+ 	temp = ap_list;
+-// 	while (temp != NULL) {
+-// 		printf("Client %d: AP %d and %f\t", index_, temp->ap_id,temp->ap_power);
+-// 		temp=temp->next;
+-// 	}
+-// 	printf("\n");
++ 	while (temp != NULL) {
++ 		printf("Client %d: AP %d and %.10f\t", index_, temp->ap_id,temp->ap_power);
++ 		temp=temp->next;
++ 	}
++ 	printf("\n");
+ }
+ 
+ void Mac802_11::push_ap(int num, double power) {
+@@ -3211,3 +3750,202 @@
+ 		i = i + 1;
+ 	}		
+ }
++
++void Mac802_11::forwarding_table(int dest, int nexthop, int distance) {
++	if (forwarding_list == NULL) {
++		forwarding_list = (struct forwarding_table*)malloc(sizeof(struct forwarding_table));
++		forwarding_list->dest = dest;
++		forwarding_list->nexthop = nexthop;
++		forwarding_list->distance = distance;
++		forwarding_list->next=NULL;
++	}
++	else {
++		push_forwarding(dest, nexthop, distance);
++	}
++	struct forwarding_table *temp;
++	temp = forwarding_list;
++ 	while (temp != NULL) {
++ 		printf("Node: %d,Dest: %d,Nexthop: %d,Distance: %d",addr(),temp->dest,temp->nexthop,temp->distance);
++ 		temp=temp->next;
++ 	}
++ 	printf("\n");
++}
++
++void Mac802_11::push_forwarding(int adest, int anexthop, int adistance) {
++	struct forwarding_table *temp;
++	temp = forwarding_list;
++	if (temp->dest == adest) {
++		temp->nexthop = anexthop;
++		temp->distance = adistance;
++		return;	
++	}
++	while (temp->next != NULL) {
++		if (temp->dest == adest) {
++			temp->nexthop = anexthop;
++			temp->distance = adistance;
++			return;
++		} 	
++		temp=temp->next;
++	}
++	temp->next = (struct forwarding_table*)malloc(sizeof(struct forwarding_table));
++	temp->next->dest= adest;
++	temp->next->nexthop= anexthop;
++	temp->next->distance= adistance;
++	temp->next->next = NULL; 
++}
++
++void Mac802_11::proxy_table(int amac, int aproxy, int ainmesh, int alifetime) {
++	if (proxy_list == NULL) {
++		proxy_list = (struct proxy_table*)malloc(sizeof(struct proxy_table));
++		proxy_list->mac=amac;
++		proxy_list->inmesh = ainmesh;
++		proxy_list->lifetime = alifetime;
++		proxy_list->proxy = aproxy;
++		proxy_list->next=NULL;
++	}
++	else {
++		push_proxy(amac, aproxy, ainmesh, alifetime);
++	}
++	struct proxy_table *temp;
++	temp = proxy_list;
++ 	while (temp != NULL) {
++ 		printf("MAC: %d,InMesh: %d,lifetime: %d,proxy: %d",temp->mac,temp->inmesh,temp->lifetime,temp->proxy);
++ 		temp=temp->next;
++ 	}
++ 	printf("\n");
++}
++
++void Mac802_11::push_proxy(int amac, int aproxy, int ainmesh, int alifetime ) {
++	struct proxy_table *temp;
++	temp = proxy_list;
++	if (temp->mac == amac) {
++		temp->inmesh = ainmesh;
++		temp->lifetime = alifetime;
++		temp->proxy= aproxy;
++		return;
++	} 	
++	while (temp->next != NULL) {
++		if (temp->mac == amac) {
++			temp->inmesh = ainmesh;
++			temp->lifetime = alifetime;
++			temp->proxy= aproxy;
++			return;
++		} 
++		temp=temp->next;
++	}
++	temp->next = (struct proxy_table*)malloc(sizeof(struct proxy_table));
++	temp->next->mac = amac;
++	temp->next->inmesh = ainmesh;
++	temp->next->lifetime = alifetime;
++	temp->next->proxy= aproxy;
++	temp->next->next = NULL; 
++}
++
++int Mac802_11::find_proxy(int dstmac) {
++	struct proxy_table *temp;
++	temp = proxy_list;
++	while (temp != NULL) {
++		if (temp->mac == dstmac) {
++			return (temp->proxy);
++		} 
++
++		temp=temp->next;
++			
++		if (temp == NULL) {
++			return -1; 
++		}
++	}
++	return 0;
++}
++
++int Mac802_11::find_meshnexthop(int mdst) {
++	struct forwarding_table *temp;
++	temp = forwarding_list;
++	while (temp != NULL) {
++		if (temp->dest == mdst) {
++			return (temp->nexthop);
++		} 
++
++		temp=temp->next;
++			
++		if (temp == NULL) {
++			return -1; 
++		}
++	}
++	return 0;
++}
++
++int Mac802_11::is_proxied(int macdst) {
++	struct proxy_table *temp;
++	temp = proxy_list;
++	while (temp != NULL) {
++		if (temp->mac == macdst && temp->proxy == addr()) {
++			return 1;
++		} 
++
++		temp=temp->next;
++			
++		if (temp == NULL) {
++			return 0; 
++		}
++	}
++	return 0;
++}
++
++void Mac802_11::MeshSN_table(int asrcMeshSTA, u_int32_t aSN) {
++	if (MeshSN_list == NULL) {
++		MeshSN_list = (struct MeshSN_table*)malloc(sizeof(struct MeshSN_table));
++		MeshSN_list->srcMeshSTA=asrcMeshSTA;
++		MeshSN_list->SN = aSN;
++		MeshSN_list->next=NULL;
++	}
++	else {
++		push_MeshSN(asrcMeshSTA, aSN);
++	}
++	struct MeshSN_table *temp;
++	temp = MeshSN_list;
++ 	while (temp != NULL) {
++ 		printf("srcMeshSTA: %d, SN: %d",temp->srcMeshSTA,temp->SN);
++ 		temp=temp->next;
++ 	}
++ 	printf("\n");
++}
++
++void Mac802_11::push_MeshSN(int asrcMeshSTA, u_int32_t aSN) {
++	struct MeshSN_table *temp;
++	temp = MeshSN_list;
++	if (temp->srcMeshSTA == asrcMeshSTA)
++	{	
++		 temp->SN = aSN;
++		 return;
++	}
++	while (temp->next != NULL) {
++		if (temp->srcMeshSTA == asrcMeshSTA) {
++			temp->SN = aSN;
++			return;
++		} 
++		temp=temp->next;
++	}
++	temp->next = (struct MeshSN_table*)malloc(sizeof(struct MeshSN_table));
++	temp->next->srcMeshSTA = asrcMeshSTA;
++	temp->next->SN= aSN;
++	temp->next->next = NULL; 
++}
++
++
++u_int32_t  Mac802_11::find_MeshSN(int srcMSTA) {
++	struct MeshSN_table *temp;
++	temp=MeshSN_list;
++	while (temp != NULL) {
++		if (temp->srcMeshSTA == srcMSTA) {
++			return temp->SN;
++		} 
++
++		temp=temp->next;
++			
++		if (temp == NULL) {
++			return 0; 
++		}
++	}
++	return 0;
++}
+
+
