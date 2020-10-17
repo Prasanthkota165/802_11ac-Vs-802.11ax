@@ -16,7 +16,7 @@ Step 4: run the 2.tcl with the command, "ns 2.tcl" in the terminal
 
 Step 5: run the awk file to trace the throughput of WIFI5/WIFI6 with the command, "awk -f th.awk WIFI.tr" in the terminal.
 
-########################################################################
+####################################################################
 
 So far explained is "How to run the setup". Next we will explain the scenario what we have simulated in the 2.tcl
 
