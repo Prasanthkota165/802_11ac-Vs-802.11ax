@@ -23,7 +23,7 @@ So far explained is "How to run the setup". Next we will explain the scenario wh
 =========================================================================
 1. The scenario is we have 2 ACCESS POINTS with 802.11ac/802.11ax technology and 4 nodes(USERS).
 2. We splitted the uplink/downlink traffic from each user node towards each access point. All the users send uplink traffic to one access point(AP0) and the other access point (AP1) could serve the user nodes with downlink traffic.
-3. Atlast, we calculated the throughput for both WIFI technologies and compare them.
+3. Atlast, we calculated the throughput for both WIFI technologies and compared the results of them.
 
 
 ---------------
